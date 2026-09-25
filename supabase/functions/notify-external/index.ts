@@ -3,7 +3,7 @@
 // Do not put Gmail/WhatsApp API secrets in the frontend.
 //
 // Expected JSON:
-// { "message": "...", "email": "optional@example.com", "whatsapp": "optional-number" }
+// { "message": "...", "email": "michaelabraham0011@gmail.com", "whatsapp": "+919497861418" }
 //
 // Add your chosen transactional email and WhatsApp provider here.
 // This scaffold intentionally does not contain real provider credentials.
