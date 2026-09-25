@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RAVENOID // COMMAND CENTER</title><link rel="stylesheet" href="css/style.css"></head><body>
+<div class="fx-grid"></div><div class="noise"></div><header class="topbar"><a class="brand" href="index.html"><span class="brand-r">R</span><span><b>RAVENOID</b><small>COMMAND CENTER</small></span></a><button class="account" id="logout">LOGOUT</button></header>
+<main class="section" style="padding-top:140px">
+<div class="head"><div><small>ADMIN // AUTHORIZED AREA</small><h2>COMMAND <em>CENTER</em></h2></div><p>Realtime management interface.</p></div>
+<div class="grid three"><div class="glass goal"><label>USERS</label><h3 id="users">—</h3><p>Registered accounts</p></div><div class="glass goal"><label>OPEN TICKETS</label><h3 id="tickets">—</h3><p>Tickets awaiting action</p></div><div class="glass goal"><label>PUBLIC POSTS</label><h3 id="posts">—</h3><p>Community posts</p></div></div>
+<div class="grid two" style="margin-top:18px">
+<section class="glass room"><label>TICKET INBOX</label><h3>SUPPORT CHANNELS</h3><div id="ticketBox">Loading...</div></section>
+<section class="glass room"><label>COMMUNITY</label><h3>PUBLIC POSTS</h3><div id="postBox">Loading...</div></section>
+</div>
+<div class="grid two" style="margin-top:18px">
+<section class="glass room"><label>NOTIFICATIONS</label><h3>SEND SYSTEM ALERT</h3><div class="form"><input id="notifyUser" placeholder="User UUID (optional)"><input id="notifyMsg" placeholder="Notification message"><button class="btn primary" id="notify">SEND NOTIFICATION ↗</button></div></section>
+<section class="glass room"><label>SECURE STORAGE</label><h3>PRIVATE FILES</h3><p>Use the Supabase Storage bucket with RLS policies. Never upload private material to a public GitHub repository.</p></section>
+</div>
+</main>
+<div class="backdrop" id="backdrop"><div class="modal glass"><button class="close" id="close">×</button><div id="modal"></div></div></div><div class="toasts" id="toasts"></div>
+<script type="module">
+import {createClient} from "https://esm.sh/@supabase/supabase-js@2";
+import {SUPABASE_URL,SUPABASE_ANON_KEY} from "./js/config.js";
+const s=(SUPABASE_URL.startsWith("http")&&SUPABASE_ANON_KEY.length>20)?createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
+const $=x=>document.querySelector(x), safe=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+const backdrop=$("#backdrop"),modal=$("#modal"); const open=x=>{modal.innerHTML=x;backdrop.classList.add("open")},close=()=>backdrop.classList.remove("open");$("#close").onclick=close;
+function toast(a,b){const t=document.createElement("div");t.className="toast";t.innerHTML=`<b>${safe(a)}</b><p>${safe(b)}</p>`;$("#toasts").append(t);setTimeout(()=>t.remove(),5000)}
+if(!s){document.body.innerHTML+="<p style='padding:140px'>Configure js/config.js first.</p>"}else{
+const {data:{user}}=await s.auth.getUser(); if(!user){location.href="index.html";throw new Error("login")}
+const {data:p}=await s.from("profiles").select("role").eq("id",user.id).single(); if(p?.role!=="admin"){await s.auth.signOut();location.href="index.html";throw new Error("not admin")}
+async function refresh(){
+ const uc=await s.from("profiles").select("*",{count:"exact",head:true}), tc=await s.from("tickets").select("*",{count:"exact",head:true}).eq("status","open"), pc=await s.from("public_posts").select("*",{count:"exact",head:true});
+ $("#users").textContent=uc.count??0;$("#tickets").textContent=tc.count??0;$("#posts").textContent=pc.count??0;
+ const {data:t}=await s.from("tickets").select("id,ticket_no,subject,status,created_at,profiles(display_name)").order("created_at",{ascending:false}).limit(20);
+ $("#ticketBox").innerHTML=(t||[]).map(x=>`<button class="btn ticket" data-id="${x.id}" style="display:block;width:100%;text-align:left;margin:7px 0">#${x.ticket_no} — ${safe(x.subject)} [${safe(x.status)}] — ${safe(x.profiles?.display_name||"User")}</button>`).join("")||"<p>No tickets.</p>";
+ document.querySelectorAll(".ticket").forEach(b=>b.onclick=()=>ticketChat(b.dataset.id));
+ const {data:posts}=await s.from("public_posts").select("id,body,created_at,profiles(display_name)").order("created_at",{ascending:false}).limit(15);
+ $("#postBox").innerHTML=(posts||[]).map(x=>`<div style="padding:9px 0;border-bottom:1px solid #ffffff10"><b>${safe(x.profiles?.display_name||"Anonymous")}</b><p>${safe(x.body)}</p><button class="btn delpost" data-id="${x.id}">DELETE</button></div>`).join("")||"<p>No posts.</p>";
+ document.querySelectorAll(".delpost").forEach(b=>b.onclick=async()=>{const{error}=await s.from("public_posts").delete().eq("id",b.dataset.id);if(error)toast("DELETE FAILED",error.message);else refresh()});
+}
+async function ticketChat(id){
+ const {data:t}=await s.from("tickets").select("*,profiles(display_name)").eq("id",id).single();
+ const {data:m}=await s.from("ticket_messages").select("body,created_at,sender_id").eq("ticket_id",id).order("created_at");
+ open(`<label>RAVENOID // TICKET #${t.ticket_no}</label><h3>${safe(t.subject)}</h3><p>USER: ${safe(t.profiles?.display_name||"Unknown")}</p>
+ <div id="chat" style="max-height:320px;overflow:auto">${(m||[]).map(x=>`<div style="padding:10px 0;border-bottom:1px solid #ffffff10"><small>${new Date(x.created_at).toLocaleString()}</small><p>${safe(x.body)}</p></div>`).join("")}</div>
+ <div class="form"><select id="status"><option ${t.status==="open"?"selected":""}>open</option><option ${t.status==="pending"?"selected":""}>pending</option><option ${t.status==="closed"?"selected":""}>closed</option></select><textarea id="reply" placeholder="Reply to user..."></textarea><button class="btn primary" id="send">SEND + UPDATE ↗</button></div>`);
+ $("#send").onclick=async()=>{const body=$("#reply").value.trim();const st=$("#status").value;let e=null;if(body){e=(await s.from("ticket_messages").insert({ticket_id:id,sender_id:user.id,body})).error}if(!e)e=(await s.from("tickets").update({status:st,updated_at:new Date().toISOString()}).eq("id",id)).error;if(e)toast("UPDATE FAILED",e.message);else{close();refresh();toast("TICKET UPDATED","User can see the new status and reply in realtime.")}};
+ s.channel(`admin-ticket-${id}`).on("postgres_changes",{event:"INSERT",schema:"public",table:"ticket_messages",filter:`ticket_id=eq.${id}`},p=>{const c=$("#chat");if(c){c.insertAdjacentHTML("beforeend",`<div style="padding:10px 0;border-bottom:1px solid #ffffff10"><small>${new Date(p.new.created_at).toLocaleString()}</small><p>${safe(p.new.body)}</p></div>`);c.scrollTop=c.scrollHeight}}).subscribe();
+}
+$("#notify").onclick=async()=>{const uid=$("#notifyUser").value.trim()||null,msg=$("#notifyMsg").value.trim();if(!msg)return toast("MISSING","Enter a message.");const{error}=await s.from("notifications").insert({user_id:uid,message:msg,type:"admin"});if(error)toast("FAILED",error.message);else{$("#notifyMsg").value="";toast("SENT","Notification created.")}};
+$("#logout").onclick=async()=>{await s.auth.signOut();location.href="index.html"}; refresh();
+s.channel("admin-live").on("postgres_changes",{event:"*",schema:"public",table:"tickets"},refresh).on("postgres_changes",{event:"*",schema:"public",table:"public_posts"},refresh).subscribe();
+}
+</script></body></html>
